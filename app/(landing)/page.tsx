@@ -7,7 +7,7 @@ import { Rocket, Hash, Bot, ListTodo, MessageSquare, Zap } from "lucide-react";
 export default function LandingPage() {
   return (
     <div className="relative">
-      <AlertBar />
+      <AlertBar message="Helm 1.0 — Donde humanos y agentes construyen juntos" />
       <Navbar />
 
       {/* Hero */}

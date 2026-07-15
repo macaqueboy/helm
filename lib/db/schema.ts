@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -53,7 +53,7 @@ export const messages = sqliteTable("messages", {
   agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   content: text("content").notNull(),
-  parentId: text("parent_id").references(() => messages.id, { onDelete: "cascade" }),
+  parentId: text("parent_id").references((): AnySQLiteColumn => messages.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 

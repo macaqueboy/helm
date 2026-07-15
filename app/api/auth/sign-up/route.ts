@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { signUp } from "@/lib/auth";
+import { signUpWithCreds as signUp } from "@/lib/auth";
 
 export async function POST(req: Request) {
   const body = await req.json();

@@ -69,3 +69,6 @@ export async function signOut() {
 }
 
 export const getServerSession = getSession;
+
+// Aliases for API routes
+export { signInWithCreds as signIn, signUpWithCreds as signUp };
