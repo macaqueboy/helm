@@ -1,0 +1,54 @@
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brutalist Design System — Clone of raft.build */
+@theme {
+  /* Colors — OKLCH palette */
+  --color-brutal-yellow: #FFD440;
+  --color-brutal-pink: #FE7DA8;
+  --color-brutal-cyan: #27CCF3;
+  --color-brutal-red: #F97264;
+  --color-brutal-cream: #FFFAEF;
+  --color-brutal-lime: #A9D877;
+  --color-brutal-orange: #F8A16F;
+  --color-brutal-lavender: #BBAFE6;
+  --color-brutal-stone: #8B8580;
+  --color-brutal-black: #141111;
+  --color-brutal-white: #FFFFFF;
+
+  /* Shadow variants (no blur) */
+  --shadow-brutal-sm: 2px 2px 0 #141111;
+  --shadow-brutal-md: 4px 4px 0 #141111;
+  --shadow-brutal-lg: 6px 6px 0 #141111;
+  --shadow-brutal-xl: 8px 8px 0 #141111;
+  --shadow-brutal-active: 0 0 0 #141111;
+
+  /* Fonts */
+  --font-space-grotesk: "Space Grotesk", "sans-serif";
+  --font-space-mono: "Space Mono", "monospace";
+  --font-hanken-grotesk: "Hanken Grotesk", "sans-serif";
+}
+
+/* Font imports */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700&display=swap');
+
+* {
+  border-radius: 0 !important;
+}
+
+body {
+  font-family: var(--font-hanken-grotesk);
+  background: var(--color-brutal-cream);
+  color: var(--color-brutal-black);
+}
+
+h1, h2, h3, h4, h5, h6, button, .font-display {
+  font-family: var(--font-space-grotesk);
+}
+
+code, pre, .font-mono, .badge, .timestamp, .role-tag {
+  font-family: var(--font-space-mono);
+}
