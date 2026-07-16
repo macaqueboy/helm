@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { db, users, workspaces, workspaceMembers, type NewUser, type NewWorkspace } from "./db";
+import { db, users, workspaces, workspaceMembers, channels, type NewUser, type NewWorkspace } from "./db";
 import { eq } from "drizzle-orm";
 
 const secretKey = process.env.AUTH_SECRET ?? "dev-secret-change-in-production";
@@ -56,6 +56,10 @@ export async function signUpWithCreds(name: string, email: string, password: str
   const workspaceId = randomUUID();
   await db.insert(workspaces).values({ id: workspaceId, name: `${name}'s workspace`, avatarSeed: name });
   await db.insert(workspaceMembers).values({ id: randomUUID(), workspaceId, userId: id, role: "owner" });
+  // Auto-create "general" channel
+  const channelId = randomUUID();
+  await db.insert(channels).values({ id: channelId, workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: id });
+
   const session: Session = {
     user: { id: user.id, email: user.email, name: user.name, avatarSeed: user.avatarSeed },
   };
