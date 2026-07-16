@@ -2,24 +2,42 @@
 import { useState, FormEvent, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { PixelAvatar } from "@/lib/pixel-avatar";
-import { Send, Hash } from "lucide-react";
+import { Send, Hash, Bot } from "lucide-react";
 
 type Message = {
   id: string;
   userName?: string;
   userAvatarSeed?: string;
+  agentName?: string;
+  agentAvatarSeed?: string;
   content: string;
   time: string;
+  isAgent: boolean;
 };
 
 export default function ChannelPage() {
   const params = useParams<{ id: string }>();
   const channelId = params.id;
   const [messages, setMessages] = useState<Message[]>([]);
+  const [channelName, setChannelName] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const fetchChannelName = async () => {
+    try {
+      const res = await fetch("/api/channels");
+      if (!res.ok) return;
+      const data = await res.json();
+      const channel = data.find((c: any) => c.id === channelId);
+      if (channel) {
+        setChannelName(channel.name);
+      }
+    } catch (e) {
+      // silent
+    }
+  };
 
   const fetchMessages = async () => {
     try {
@@ -30,10 +48,13 @@ export default function ChannelPage() {
       setMessages(
         next.map((m: any) => ({
           id: m.id,
-          userName: m.userName ?? m.user ?? "Anónimo",
-          userAvatarSeed: m.userAvatarSeed ?? (m.userName ?? m.user ?? "anon"),
+          userName: m.userName ?? "Anónimo",
+          userAvatarSeed: m.userAvatarSeed ?? (m.userName ?? "anon"),
+          agentName: m.agentName,
+          agentAvatarSeed: m.agentAvatarSeed,
           content: m.content,
           time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          isAgent: !!m.agentId,
         }))
       );
     } catch (e) {
@@ -44,8 +65,12 @@ export default function ChannelPage() {
   };
 
   useEffect(() => {
+    fetchChannelName();
     fetchMessages();
-    const interval = setInterval(fetchMessages, 3000);
+    const interval = setInterval(() => {
+      fetchMessages();
+      fetchChannelName(); // refresh channel name in case it changed
+    }, 3000);
     return () => clearInterval(interval);
   }, [channelId]);
 
@@ -64,18 +89,8 @@ export default function ChannelPage() {
         body: JSON.stringify({ content: text.trim(), channelId }),
       });
       if (res.ok) {
-        const msg = await res.json();
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: msg.id,
-            userName: msg.userName,
-            userAvatarSeed: msg.userAvatarSeed,
-            content: msg.content,
-            time: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
         setText("");
+        // Messages will be re-fetched via polling
       }
     } catch (e) {
       // silent
@@ -89,7 +104,7 @@ export default function ChannelPage() {
       {/* Channel header */}
       <div className="h-14 border-b-2 border-brutal-black bg-white flex items-center px-4">
         <Hash className="text-brutal-black mr-2" size={20} />
-        <h2 className="font-display font-bold text-lg">{channelId}</h2>
+        <h2 className="font-display font-bold text-lg">{channelName || channelId}</h2>
       </div>
 
       {/* Messages */}
@@ -100,18 +115,41 @@ export default function ChannelPage() {
           <p className="font-mono text-xs text-brutal-stone">Sin mensajes aún. ¡Escribe el primero!</p>
         ) : null}
 
-        {messages.map((m) => (
-          <div key={m.id} className="flex items-start gap-3">
-            <PixelAvatar seed={m.userAvatarSeed ?? "anon"} name={m.userName ?? "???"} size={36} />
-            <div className="flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="font-display font-bold text-sm">{m.userName}</span>
-                <span className="font-mono text-xs text-brutal-stone">{m.time}</span>
+        {messages.map((m) =>
+          m.isAgent ? (
+            <div key={m.id} className="flex items-start gap-3">
+              <div className="relative">
+                <PixelAvatar seed={m.agentAvatarSeed ?? m.agentName ?? "agent"} name={m.agentName ?? "Agente"} size={36} />
+                <div className="absolute -bottom-1 -right-1 bg-brutal-yellow border-2 border-brutal-black rounded-full p-0.5">
+                  <Bot size={12} className="text-brutal-black" />
+                </div>
               </div>
-              <p className="font-body text-sm mt-1 text-brutal-black">{m.content}</p>
+              <div className="flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-display font-bold text-sm text-brutal-blue">
+                    @{m.agentName}
+                    <span className="ml-1 font-mono text-xs text-brutal-stone">(agente)</span>
+                  </span>
+                  <span className="font-mono text-xs text-brutal-stone">{m.time}</span>
+                </div>
+                <div className="bg-brutal-yellow border-2 border-brutal-black p-2 mt-1 rounded-sm">
+                  <p className="font-body text-sm text-brutal-black">{m.content}</p>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          ) : (
+            <div key={m.id} className="flex items-start gap-3">
+              <PixelAvatar seed={m.userAvatarSeed ?? "anon"} name={m.userName ?? "???"} size={36} />
+              <div className="flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-display font-bold text-sm">{m.userName}</span>
+                  <span className="font-mono text-xs text-brutal-stone">{m.time}</span>
+                </div>
+                <p className="font-body text-sm mt-1 text-brutal-black">{m.content}</p>
+              </div>
+            </div>
+          )
+        )}
         <div ref={bottomRef} />
       </div>
 

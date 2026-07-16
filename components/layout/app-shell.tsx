@@ -12,8 +12,19 @@ import {
   User,
   PanelRightClose,
   PanelRightOpen,
+  Plus,
 } from "lucide-react";
 import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function AppShell({
   children,
@@ -32,11 +43,35 @@ export default function AppShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [creatingChannel, setCreatingChannel] = useState(false);
   const publicChannels = channels.filter((c) => !c.isPrivate);
 
   async function onSignOut() {
     await fetch("/api/auth/sign-out", { method: "POST" });
     router.push("/sign-in");
+  }
+
+  async function createChannel() {
+    if (!newChannelName.trim()) return;
+    setCreatingChannel(true);
+    try {
+      const res = await fetch("/api/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newChannelName.trim(), isPrivate: false }),
+      });
+      if (res.ok) {
+        setShowCreateChannel(false);
+        setNewChannelName("");
+        router.refresh();
+      }
+    } catch (err) {
+      console.error("Error creating channel:", err);
+    } finally {
+      setCreatingChannel(false);
+    }
   }
 
   return (
@@ -69,8 +104,17 @@ export default function AppShell({
             Inicio
           </Button>
 
-          <div className="px-2 pt-2 pb-1 text-[10px] font-mono text-brutal-stone uppercase tracking-widest">
-            Canales
+          <div className="px-2 pt-2 pb-1 flex items-center justify-between">
+            <span className="text-[10px] font-mono text-brutal-stone uppercase tracking-widest">
+              Canales
+            </span>
+            <button
+              onClick={() => setShowCreateChannel(true)}
+              className="w-6 h-6 bg-brutal-yellow border-2 border-brutal-black flex items-center justify-center hover:shadow-brutal-sm hover:-translate-x-[1px] hover:-translate-y-[1px] transition-all"
+              title="Crear canal"
+            >
+              <Plus size={14} className="text-black" />
+            </button>
           </div>
           {publicChannels.map((c) => (
             <Button
@@ -133,6 +177,42 @@ export default function AppShell({
       <main className="h-full overflow-hidden bg-brutal-cream flex flex-col">
         {children}
       </main>
+
+      {/* Create Channel Dialog */}
+      <Dialog open={showCreateChannel} onOpenChange={setShowCreateChannel}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Crear nuevo canal</DialogTitle>
+            <DialogDescription>
+              Ingresa el nombre para tu nuevo canal.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label className="font-mono text-xs uppercase text-brutal-stone block mb-1">Nombre</Label>
+              <Input
+                className="border-2 border-brutal-black"
+                value={newChannelName}
+                onChange={(e) => setNewChannelName(e.target.value)}
+                placeholder="Nombre del canal"
+                onKeyDown={(e) => e.key === "Enter" && createChannel()}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowCreateChannel(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="default"
+              onClick={createChannel}
+              disabled={creatingChannel || !newChannelName.trim()}
+            >
+              {creatingChannel ? "Creando..." : "Crear"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
