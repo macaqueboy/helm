@@ -38,6 +38,9 @@ export const db = new Proxy({} as BetterSQLite3Database<typeof schema>, {
         CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, channel_id TEXT, agent_id TEXT, user_id TEXT, content TEXT NOT NULL, parent_id TEXT, created_at INTEGER);
         CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, channel_id TEXT, number INTEGER NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'todo', owner_id TEXT, agent_id TEXT, created_by_id TEXT, created_at INTEGER, updated_at INTEGER);
         CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, channel_id TEXT, agent_id TEXT, dm_user_id TEXT, context TEXT, created_at INTEGER);
+        CREATE TABLE IF NOT EXISTS reactions (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, user_id TEXT, agent_id TEXT, emoji TEXT NOT NULL, created_at INTEGER);
+        CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel_id TEXT, message_id TEXT, title TEXT NOT NULL, fire_at INTEGER NOT NULL, recurrence TEXT, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER);
+        CREATE TABLE IF NOT EXISTS agent_memory (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'general', key TEXT, content TEXT NOT NULL, created_at INTEGER, updated_at INTEGER);
       `);
     } catch {}
     return Reflect.get(d, prop);

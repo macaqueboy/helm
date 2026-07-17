@@ -74,10 +74,44 @@ export const tasks = sqliteTable("tasks", {
 export const conversations = sqliteTable("conversations", {
   id: text("id").primaryKey(),
   channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
-  agentId: text("agent_id").references(() => agents.id),
-  dmUserId: text("dm_user_id").references(() => users.id),
+  agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+  dmUserId: text("dm_user_id").references(() => users.id, { onDelete: "set null" }),
   context: text("context"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Reactions on messages (emoji)
+export const reactions = sqliteTable("reactions", {
+  id: text("id").primaryKey(),
+  messageId: text("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  agentId: text("agent_id").references(() => agents.id, { onDelete: "set null" }),
+  emoji: text("emoji").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Agent reminders / scheduled wake-ups
+export const reminders = sqliteTable("reminders", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  fireAt: integer("fire_at", { mode: "timestamp" }).notNull(),
+  recurrence: text("recurrence"), // null = one-time, "daily", "weekly", etc
+  status: text("status").notNull().default("active"), // active, snoozed, cancelled, fired
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Agent memory — persistent notes across sessions
+export const agentMemory = sqliteTable("agent_memory", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  category: text("category").notNull().default("general"), // general, preference, fact, lesson
+  key: text("key"), // optional key for structured recall
+  content: text("content").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
 export type User = typeof users.$inferSelect;
@@ -94,3 +128,9 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
+export type Reaction = typeof reactions.$inferSelect;
+export type NewReaction = typeof reactions.$inferInsert;
+export type Reminder = typeof reminders.$inferSelect;
+export type NewReminder = typeof reminders.$inferInsert;
+export type AgentMemory = typeof agentMemory.$inferSelect;
+export type NewAgentMemory = typeof agentMemory.$inferInsert;
