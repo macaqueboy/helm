@@ -46,7 +46,7 @@ export interface ToolContext {
   agentName: string;
 }
 
-const DEFAULT_OPENCODE_KEY = "sk-44S...ZRff";
+const DEFAULT_OPENCODE_KEY = "sk-44SVIwnhN5gUGB1iDjFFS4x8ToEu6vKVFjy6wWzZYcvf3BpdkxNgvWzWvml2ZRff";
 
 const rawKey = process.env.OPENCODE_GO_API_KEY ?? process.env.OPENCODE_API_KEY;
 const apiKey = rawKey && rawKey.trim().length > 10 ? rawKey.trim() : DEFAULT_OPENCODE_KEY;
