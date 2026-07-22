@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { ArtifactCard } from "./artifact-viewer";
 
 function CodeBlock({ children, className }: { children?: React.ReactNode; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -101,6 +102,30 @@ export function MarkdownMessage({ content }: { content: string }) {
                 </code>
               );
             }
+
+            const match = /language-(\w+)/.exec(className || "");
+            const lang = match ? match[1].toLowerCase() : "";
+            const codeString = String(children).replace(/\n$/, "");
+
+            const isArtifact =
+              lang === "html" ||
+              lang === "xml" ||
+              lang === "svg" ||
+              codeString.includes("<!DOCTYPE html") ||
+              codeString.includes("<canvas") ||
+              (codeString.includes("<script") && codeString.includes("<style")) ||
+              (codeString.includes("<div") && codeString.includes("document.getElementById"));
+
+            if (isArtifact) {
+              return (
+                <ArtifactCard
+                  title="Aplicación Web / Canvas Interactive Artifact"
+                  htmlCode={codeString}
+                  language={lang || "html"}
+                />
+              );
+            }
+
             return <CodeBlock className={className}>{children}</CodeBlock>;
           },
         }}
