@@ -147,6 +147,90 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "save_memory",
+      description: "Guarda una nota, hecho o lección aprendida en la memoria persistente del agente.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Contenido de la nota o hecho a recordar",
+          },
+          category: {
+            type: "string",
+            description: "Categoría opcional (ej: general, preferencia, leccion, preferencia_usuario)",
+          },
+          key: {
+            type: "string",
+            description: "Clave opcional para identificar la memoria (ej: user_tech_stack, project_goal)",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "recall_memory",
+      description: "Consulta las memorias guardadas del agente.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            description: "Filtrar por categoría (opcional)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_reaction",
+      description: "Añade una reacción de emoji a un mensaje reciente.",
+      parameters: {
+        type: "object",
+        properties: {
+          message_id: {
+            type: "string",
+            description: "ID del mensaje al que reaccionar",
+          },
+          emoji: {
+            type: "string",
+            description: "Emoji para la reacción (ej: 👍, 🚀, 💡, 🔥, ✅)",
+          },
+        },
+        required: ["message_id", "emoji"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_reminder",
+      description: "Programa un recordatorio para el agente o canal.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Título o descripción del recordatorio",
+          },
+          minutes_from_now: {
+            type: "number",
+            description: "Minutos a esperar antes de disparar el recordatorio",
+          },
+        },
+        required: ["title", "minutes_from_now"],
+      },
+    },
+  },
 ];
 
 export type ToolName =
@@ -156,4 +240,8 @@ export type ToolName =
   | "create_channel"
   | "search_web"
   | "mention_agent"
-  | "list_agents";
+  | "list_agents"
+  | "save_memory"
+  | "recall_memory"
+  | "add_reaction"
+  | "set_reminder";

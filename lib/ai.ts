@@ -47,7 +47,8 @@ export interface ToolContext {
   agentName: string;
 }
 
-const baseUrl = process.env.OPENCODEGO_URL ?? "http://localhost:8800";
+const baseUrl = process.env.OPENCODEGO_URL ?? "http://127.0.0.1:8800";
+const apiKey = process.env.OPENCODE_GO_API_KEY ?? process.env.OPENCODE_API_KEY ?? "sk-opencode";
 const defaultModel = process.env.OPENCODEGO_DEFAULT_MODEL ?? "deepseek-v4-flash";
 
 /**
@@ -83,7 +84,10 @@ async function llmCall(
 
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${apiKey}`,
+    },
     body: JSON.stringify(body),
     signal: opts?.signal,
   });

@@ -1,4 +1,4 @@
-import { db, agents, tasks, channels, messages, workspaceMembers } from "@/lib/db";
+import { db, agents, tasks, channels, messages, workspaceMembers, agentMemory, reactions, reminders } from "@/lib/db";
 import { eq, sql, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { ToolContext } from "@/lib/ai";
@@ -45,7 +45,7 @@ async function listTasks(
   args: { status?: string },
   ctx: ToolContext
 ): Promise<string> {
-  let query = db
+  const query = db
     .select({
       number: tasks.number,
       title: tasks.title,
@@ -129,7 +129,7 @@ async function createChannel(
   const id = randomUUID();
   const name = args.name.toLowerCase().replace(/\s+/g, "-");
 
-  const [channel] = await db
+  await db
     .insert(channels)
     .values({
       id,
@@ -138,8 +138,7 @@ async function createChannel(
       description: args.description ?? null,
       isPrivate: false,
       createdBy: ctx.userId,
-    })
-    .returning();
+    });
 
   return JSON.stringify({
     ok: true,
@@ -154,7 +153,6 @@ async function searchWeb(
   _ctx: ToolContext
 ): Promise<string> {
   try {
-    // Use DuckDuckGo HTML endpoint — no API key needed
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(args.query)}`;
     const res = await fetch(url, {
       headers: {
@@ -168,14 +166,12 @@ async function searchWeb(
 
     const html = await res.text();
 
-    // Parse results from DDG HTML
     const results: { title: string; url: string; snippet: string }[] = [];
     const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>(.*?)<\/a>/g;
     let match;
     let count = 0;
     while ((match = resultRegex.exec(html)) !== null && count < 5) {
       const rawUrl = match[1];
-      // DDG wraps URLs in a redirect
       const urlMatch = rawUrl.match(/uddg=([^&]+)/);
       const cleanUrl = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
       const title = match[2].replace(/<[^>]*>/g, "").trim();
@@ -185,7 +181,6 @@ async function searchWeb(
     }
 
     if (results.length === 0) {
-      // Fallback: try simpler regex
       const links = html.match(/<a[^>]*class="result__a"[^>]*>(.*?)<\/a>/g);
       if (links) {
         for (let i = 0; i < Math.min(links.length, 5); i++) {
@@ -213,7 +208,6 @@ async function mentionAgent(
   args: { agent_name: string; message: string },
   ctx: ToolContext
 ): Promise<string> {
-  // Find the agent by name in the workspace
   const [targetAgent] = await db
     .select()
     .from(agents)
@@ -231,7 +225,6 @@ async function mentionAgent(
     return JSON.stringify({ ok: false, error: "No puedes mencionarte a ti mismo" });
   }
 
-  // Insert a message from the current agent mentioning the target
   const msgId = randomUUID();
   await db.insert(messages).values({
     id: msgId,
@@ -240,13 +233,10 @@ async function mentionAgent(
     content: `@${args.agent_name} ${args.message}`,
   });
 
-  // Trigger: the target agent will respond on next message poll
-  // We mark this in the message for the POST handler to pick up
   return JSON.stringify({
     ok: true,
     mentioned_agent: args.agent_name,
     message: `Mención enviada a @${args.agent_name}`,
-    note: "El agente mencionado responderá en breve",
   });
 }
 
@@ -276,11 +266,111 @@ async function listAgents(
   });
 }
 
+async function saveMemory(
+  args: { content: string; category?: string; key?: string },
+  ctx: ToolContext
+): Promise<string> {
+  if (!ctx.agentId) {
+    return JSON.stringify({ ok: false, error: "Contexto de agente requerido para guardar memoria" });
+  }
+
+  const id = randomUUID();
+  await db.insert(agentMemory).values({
+    id,
+    agentId: ctx.agentId,
+    category: args.category ?? "general",
+    key: args.key ?? null,
+    content: args.content,
+  });
+
+  return JSON.stringify({
+    ok: true,
+    memory_id: id,
+    message: "Memoria guardada correctamente",
+  });
+}
+
+async function recallMemory(
+  args: { category?: string },
+  ctx: ToolContext
+): Promise<string> {
+  if (!ctx.agentId) {
+    return JSON.stringify({ ok: false, error: "Contexto de agente requerido para recordar memorias" });
+  }
+
+  let query = db
+    .select()
+    .from(agentMemory)
+    .where(eq(agentMemory.agentId, ctx.agentId));
+
+  const items = await query;
+  const filtered = args.category
+    ? items.filter((m: any) => m.category === args.category)
+    : items;
+
+  return JSON.stringify({
+    ok: true,
+    memories: filtered.map((m: any) => ({
+      category: m.category,
+      key: m.key,
+      content: m.content,
+      createdAt: m.createdAt,
+    })),
+    count: filtered.length,
+  });
+}
+
+async function addReaction(
+  args: { message_id: string; emoji: string },
+  ctx: ToolContext
+): Promise<string> {
+  const id = randomUUID();
+  await db.insert(reactions).values({
+    id,
+    messageId: args.message_id,
+    agentId: ctx.agentId,
+    emoji: args.emoji,
+  });
+
+  return JSON.stringify({
+    ok: true,
+    message: `Reacción ${args.emoji} añadida al mensaje`,
+  });
+}
+
+async function setReminder(
+  args: { title: string; minutes_from_now: number },
+  ctx: ToolContext
+): Promise<string> {
+  if (!ctx.agentId) {
+    return JSON.stringify({ ok: false, error: "Contexto de agente requerido" });
+  }
+
+  const id = randomUUID();
+  const fireAt = new Date(Date.now() + (args.minutes_from_now || 5) * 60 * 1000);
+
+  await db.insert(reminders).values({
+    id,
+    agentId: ctx.agentId,
+    channelId: ctx.channelId,
+    title: args.title,
+    fireAt,
+    status: "active",
+  });
+
+  return JSON.stringify({
+    ok: true,
+    reminder_id: id,
+    fire_at: fireAt.toISOString(),
+    message: `Recordatorio programado para dentro de ${args.minutes_from_now} min: "${args.title}"`,
+  });
+}
+
 // ═════════════════════════════════════════════════════════════
 // Export: tool definitions + executors map
 // ═════════════════════════════════════════════════════════════
 
-export const toolExecutors: Record<string, (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>> = {
+export const toolExecutors: Record<string, (args: any, ctx: ToolContext) => Promise<string>> = {
   create_task: createTask as any,
   list_tasks: listTasks as any,
   update_task: updateTask as any,
@@ -288,6 +378,10 @@ export const toolExecutors: Record<string, (args: Record<string, unknown>, ctx: 
   search_web: searchWeb as any,
   mention_agent: mentionAgent as any,
   list_agents: listAgents as any,
+  save_memory: saveMemory as any,
+  recall_memory: recallMemory as any,
+  add_reaction: addReaction as any,
+  set_reminder: setReminder as any,
 };
 
 export { AGENT_TOOLS };

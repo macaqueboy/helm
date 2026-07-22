@@ -13,6 +13,11 @@ type Task = {
   ownerAvatarSeed?: string;
 };
 
+type Channel = {
+  id: string;
+  name: string;
+};
+
 type Column = {
   id: "todo" | "in_progress" | "done";
   label: string;
@@ -26,10 +31,26 @@ const COLUMNS: Column[] = [
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [showForm, setShowForm] = useState(false);
+
+  const fetchChannels = async () => {
+    try {
+      const res = await fetch("/api/channels");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setChannels(data);
+        setSelectedChannelId(data[0].id);
+      }
+    } catch (e) {
+      // silent
+    }
+  };
 
   const fetchTasks = async () => {
     try {
@@ -57,14 +78,16 @@ export default function TasksPage() {
   };
 
   useEffect(() => {
+    fetchChannels();
     fetchTasks();
   }, []);
 
   const createTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    const firstChannel = tasks[0]?.channelId;
-    if (!firstChannel) return;
+
+    const targetChannelId = selectedChannelId || tasks[0]?.channelId || channels[0]?.id;
+    if (!targetChannelId) return;
 
     const res = await fetch("/api/tasks", {
       method: "POST",
@@ -72,7 +95,7 @@ export default function TasksPage() {
       body: JSON.stringify({
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
-        channelId: firstChannel,
+        channelId: targetChannelId,
       }),
     });
     if (res.ok) {
@@ -90,7 +113,7 @@ export default function TasksPage() {
       body: JSON.stringify({ id: taskId, status }),
     });
     if (res.ok) {
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status } : t)));
+      setTasks((prev: Task[]) => prev.map((t: Task) => (t.id === taskId ? { ...t, status } : t)));
     }
   };
 
@@ -110,19 +133,32 @@ export default function TasksPage() {
       </div>
 
       {showForm ? (
-        <form className="border-b-2 border-brutal-black bg-white p-3 flex gap-2" onSubmit={createTask}>
+        <form className="border-b-2 border-brutal-black bg-white p-3 flex flex-wrap gap-2 items-center" onSubmit={createTask}>
           <input
-            className="flex-1 h-10 border-2 border-brutal-black px-3 font-body text-sm focus:outline-none"
+            className="flex-1 min-w-[150px] h-10 border-2 border-brutal-black px-3 font-body text-sm focus:outline-none bg-white"
             placeholder="Nueva tarea..."
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
           />
           <input
-            className="flex-1 h-10 border-2 border-brutal-black px-3 font-body text-sm focus:outline-none"
+            className="flex-1 min-w-[150px] h-10 border-2 border-brutal-black px-3 font-body text-sm focus:outline-none bg-white"
             placeholder="Descripción (opcional)"
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
           />
+          {channels.length > 0 && (
+            <select
+              value={selectedChannelId}
+              onChange={(e) => setSelectedChannelId(e.target.value)}
+              className="h-10 border-2 border-brutal-black px-2 font-mono text-xs bg-brutal-cream"
+            >
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  #{c.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="submit"
             className="h-10 px-4 bg-brutal-yellow border-2 border-brutal-black shadow-brutal-sm hover:shadow-brutal-md hover:-translate-x-[1px] hover:-translate-y-[1px] font-display font-bold text-sm"
@@ -135,8 +171,11 @@ export default function TasksPage() {
       <div className="flex-1 overflow-x-auto p-4 flex gap-4">
         {COLUMNS.map((col) => (
           <div key={col.id} className="w-72 min-w-[18rem] border-2 border-brutal-black bg-white flex flex-col">
-            <div className="h-10 border-b-2 border-brutal-black bg-brutal-yellow flex items-center px-3 font-display font-bold text-sm">
-              {col.label}
+            <div className="h-10 border-b-2 border-brutal-black bg-brutal-yellow flex items-center px-3 font-display font-bold text-sm justify-between">
+              <span>{col.label}</span>
+              <span className="font-mono text-xs bg-white px-1.5 py-0.5 border border-brutal-black">
+                {getColumnTasks(col.id).length}
+              </span>
             </div>
             <div className="flex-1 p-3 space-y-3 overflow-y-auto">
               {loading ? (
@@ -146,47 +185,43 @@ export default function TasksPage() {
               ) : null}
 
               {getColumnTasks(col.id).map((t) => (
-                <div key={t.id} className="border-2 border-brutal-black p-3 shadow-brutal-sm bg-white">
+                <div key={t.id} className="border-2 border-brutal-black p-3 shadow-brutal-sm bg-white hover:border-brutal-blue transition-colors">
                   <div className="font-display font-bold text-sm mb-1">#{t.number} {t.title}</div>
                   {t.description ? (
                     <div className="font-body text-xs text-brutal-black mb-2">{t.description}</div>
                   ) : null}
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-brutal-stone/20">
                     <div className="flex items-center gap-1 text-xs font-mono text-brutal-stone">
-                      {t.ownerAvatarSeed ? (
-                        <span className="inline-block h-4 w-4 border border-brutal-black bg-brutal-stone/20" />
-                      ) : null}
                       {t.ownerName ?? "Sin asignar"}
                     </div>
                     <div className="flex gap-1">
                       {col.id !== "todo" ? (
                         <button
                           onClick={() => moveTask(t.id, "todo")}
-                          className="px-2 py-1 border border-brutal-black bg-white text-xs hover:bg-brutal-cream"
+                          className="px-2 py-1 border border-brutal-black bg-white text-xs hover:bg-brutal-cream font-bold"
                           title="A por hacer"
                         >
-                          ←
-                        </button>
-                      ) : null}
-                      {col.id !== "done" ? (
-                        <button
-                          onClick={() => moveTask(t.id, "done")}
-                          className="px-2 py-1 border border-brutal-black bg-white text-xs hover:bg-brutal-cream"
-                          title="Completar"
-                        >
-                          ✓
+                          ← Todo
                         </button>
                       ) : null}
                       {col.id !== "in_progress" ? (
                         <button
                           onClick={() => moveTask(t.id, "in_progress")}
-                          className="px-2 py-1 border border-brutal-black bg-white text-xs hover:bg-brutal-cream"
+                          className="px-2 py-1 border border-brutal-black bg-white text-xs hover:bg-brutal-cream font-bold"
                           title="En progreso"
                         >
-                          →
+                          → Progreso
                         </button>
                       ) : null}
-                      <ArrowRightLeft size={12} className="text-brutal-stone mt-1" />
+                      {col.id !== "done" ? (
+                        <button
+                          onClick={() => moveTask(t.id, "done")}
+                          className="px-2 py-1 border border-brutal-black bg-brutal-yellow text-xs hover:bg-brutal-yellow/80 font-bold"
+                          title="Completar"
+                        >
+                          ✓ Hecho
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

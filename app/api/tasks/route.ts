@@ -3,6 +3,7 @@ import { getServerSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tasks, channels, users, workspaceMembers } from "@/lib/db/schema";
 import { eq, sql, inArray, desc } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export async function GET() {
   const session = await getServerSession();
@@ -20,7 +21,11 @@ export async function GET() {
     .from(channels)
     .where(eq(channels.workspaceId, member.workspaceId));
 
-  const channelIds = workspaceChannels.map((c) => c.id);
+  const channelIds = workspaceChannels.map((c: any) => c.id);
+
+  if (channelIds.length === 0) {
+    return NextResponse.json([]);
+  }
 
   const workspaceTasks = await db
     .select({
@@ -72,7 +77,7 @@ export async function POST(req: Request) {
   const [task] = await db
     .insert(tasks)
     .values({
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       channelId,
       number,
       title,

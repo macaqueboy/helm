@@ -9,7 +9,7 @@ const secret = new TextEncoder().encode(secretKey);
 
 export type Session = { user: { id: string; email: string; name: string; avatarSeed: string } };
 
-async function encrypt(payload: any) {
+export async function encrypt(payload: any) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -17,7 +17,7 @@ async function encrypt(payload: any) {
     .sign(secret);
 }
 
-async function decrypt(input: string): Promise<any> {
+export async function decrypt(input: string): Promise<any> {
   const { payload } = await jwtVerify(input, secret, { algorithms: ["HS256"] });
   return payload;
 }
