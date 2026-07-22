@@ -85,7 +85,7 @@ async function llmCall(
   const body: Record<string, unknown> = {
     model,
     messages,
-    max_tokens: opts?.maxTokens ?? 4096,
+    max_tokens: opts?.maxTokens ?? 8192,
     temperature: opts?.temperature ?? 0.7,
     stream: false,
   };
