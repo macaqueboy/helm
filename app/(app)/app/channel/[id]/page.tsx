@@ -52,7 +52,11 @@ export default function ChannelPage() {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
+  const initialLoadedRef = useRef(false);
+  const userSentRef = useRef(false);
+  const prevMsgCountRef = useRef(0);
 
   const fetchChannelName = async () => {
     try {
@@ -74,18 +78,37 @@ export default function ChannelPage() {
       if (!res.ok) return;
       const data = await res.json();
       const next = Array.isArray(data) ? data : [];
-      setMessages(
-        next.map((m: any) => ({
-          id: m.id,
-          userName: m.userName ?? "Anónimo",
-          userAvatarSeed: m.userAvatarSeed ?? (m.userName ?? "anon"),
-          agentName: m.agentName,
-          agentAvatarSeed: m.agentAvatarSeed,
-          content: m.content,
-          time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          isAgent: !!m.agentId,
-        }))
-      );
+      const parsed: Message[] = next.map((m: any) => ({
+        id: m.id,
+        userName: m.userName ?? "Anónimo",
+        userAvatarSeed: m.userAvatarSeed ?? (m.userName ?? "anon"),
+        agentName: m.agentName,
+        agentAvatarSeed: m.agentAvatarSeed,
+        content: m.content,
+        time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        isAgent: !!m.agentId,
+      }));
+
+      setMessages(parsed);
+
+      // Scroll to bottom ONLY on initial load or if user sent a message
+      if (!initialLoadedRef.current || userSentRef.current) {
+        setTimeout(() => {
+          bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 100);
+        initialLoadedRef.current = true;
+        userSentRef.current = false;
+      } else if (parsed.length > prevMsgCountRef.current) {
+        // If new message arrived via polling, only scroll if near bottom
+        const container = bottomRef.current?.parentElement;
+        if (container) {
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 250;
+          if (isNearBottom) {
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+          }
+        }
+      }
+      prevMsgCountRef.current = parsed.length;
     } catch (e) {
       // silent
     } finally {
@@ -94,6 +117,7 @@ export default function ChannelPage() {
   };
 
   useEffect(() => {
+    initialLoadedRef.current = false;
     fetchChannelName();
     fetchMessages();
     const interval = setInterval(() => {
@@ -103,14 +127,11 @@ export default function ChannelPage() {
     return () => clearInterval(interval);
   }, [channelId]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   const onSend = async (e: FormEvent) => {
     e.preventDefault();
     if (!text.trim() || sending) return;
     setSending(true);
+    userSentRef.current = true; // flag to scroll down when sent
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
