@@ -25,10 +25,12 @@ export default async function AppLayout({
     .from(workspaces)
     .where(eq(workspaces.id, members.workspaceId));
 
+  if (!workspace) redirect("/sign-in");
+
   const publicChannels = await db
     .select()
     .from(channels)
-    .where(eq(channels.isPrivate, false));
+    .where(eq(channels.workspaceId, members.workspaceId));
 
   const workspaceAgents = await db
     .select()

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { db, users, workspaces, workspaceMembers, channels, type NewUser, type NewWorkspace } from "./db";
+import { db, users, workspaces, workspaceMembers, channels } from "./db";
 import { eq } from "drizzle-orm";
 
 const secretKey = process.env.AUTH_SECRET ?? "dev-secret-change-in-production";
@@ -23,11 +23,40 @@ export async function decrypt(input: string): Promise<any> {
 }
 
 async function getSession() {
-  const session = (await cookies()).get("session")?.value;
-  if (!session) return null;
   try {
-    const payload = await decrypt(session);
-    return payload as Session;
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("session")?.value;
+    if (!sessionCookie) return null;
+
+    const payload = await decrypt(sessionCookie);
+    if (!payload?.user?.id) return null;
+
+    // Validate that user exists in DB
+    const [existingUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, payload.user.id))
+      .limit(1);
+
+    if (!existingUser) return null;
+
+    // Validate that user is in at least one workspace
+    const [member] = await db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, existingUser.id))
+      .limit(1);
+
+    if (!member) return null;
+
+    return {
+      user: {
+        id: existingUser.id,
+        email: existingUser.email,
+        name: existingUser.name,
+        avatarSeed: existingUser.avatarSeed ?? existingUser.name,
+      },
+    } as Session;
   } catch {
     return null;
   }
@@ -38,6 +67,21 @@ export async function signInWithCreds(email: string, password: string): Promise<
   if (!existingUser || existingUser.password !== password) {
     return { ok: false, error: "Credenciales inválidas" };
   }
+
+  // Ensure user has a workspace
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, existingUser.id))
+    .limit(1);
+
+  if (!member) {
+    const workspaceId = randomUUID();
+    await db.insert(workspaces).values({ id: workspaceId, name: `${existingUser.name}'s workspace`, avatarSeed: existingUser.name });
+    await db.insert(workspaceMembers).values({ id: randomUUID(), workspaceId, userId: existingUser.id, role: "owner" });
+    await db.insert(channels).values({ id: randomUUID(), workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: existingUser.id });
+  }
+
   const session: Session = {
     user: { id: existingUser.id, email: existingUser.email, name: existingUser.name, avatarSeed: existingUser.avatarSeed },
   };
