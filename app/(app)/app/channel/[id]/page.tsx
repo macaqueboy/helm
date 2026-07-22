@@ -56,7 +56,6 @@ export default function ChannelPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const initialLoadedRef = useRef(false);
   const userSentRef = useRef(false);
-  const prevMsgCountRef = useRef(0);
 
   const fetchChannelName = async () => {
     try {
@@ -89,26 +88,26 @@ export default function ChannelPage() {
         isAgent: !!m.agentId,
       }));
 
-      setMessages(parsed);
-
-      // Scroll to bottom ONLY on initial load or if user sent a message
-      if (!initialLoadedRef.current || userSentRef.current) {
-        setTimeout(() => {
-          bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-        initialLoadedRef.current = true;
-        userSentRef.current = false;
-      } else if (parsed.length > prevMsgCountRef.current) {
-        // If new message arrived via polling, only scroll if near bottom
-        const container = bottomRef.current?.parentElement;
-        if (container) {
-          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 250;
-          if (isNearBottom) {
-            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-          }
+      // PREVENT RE-RENDERING IF MESSAGES ARE IDENTICAL (Prevents iframe reload / game reset)
+      setMessages((prev) => {
+        if (
+          prev.length === parsed.length &&
+          prev.every((msg, i) => msg.id === parsed[i].id && msg.content === parsed[i].content)
+        ) {
+          return prev; // Return exact same array reference -> NO React re-render
         }
-      }
-      prevMsgCountRef.current = parsed.length;
+
+        // Only scroll if new message was appended and user was near bottom or sent it
+        if (!initialLoadedRef.current || userSentRef.current) {
+          setTimeout(() => {
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+          }, 100);
+          initialLoadedRef.current = true;
+          userSentRef.current = false;
+        }
+
+        return parsed;
+      });
     } catch (e) {
       // silent
     } finally {
@@ -122,8 +121,7 @@ export default function ChannelPage() {
     fetchMessages();
     const interval = setInterval(() => {
       fetchMessages();
-      fetchChannelName();
-    }, 3000);
+    }, 4000);
     return () => clearInterval(interval);
   }, [channelId]);
 

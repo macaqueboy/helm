@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Check, Copy } from "lucide-react";
 import { ArtifactCard } from "./artifact-viewer";
 
@@ -37,7 +37,7 @@ function CodeBlock({ children, className }: { children?: React.ReactNode; classN
   );
 }
 
-export function MarkdownMessage({ content }: { content: string }) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content }: { content: string }) {
   return (
     <div className="prose prose-sm max-w-none font-body text-sm text-brutal-black leading-normal space-y-2">
       <ReactMarkdown
@@ -134,4 +134,4 @@ export function MarkdownMessage({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

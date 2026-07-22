@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Play, Code, RefreshCw, Maximize2, X, Check, Copy, Sparkles, Gamepad2 } from "lucide-react";
 
-export function ArtifactCard({
+export const ArtifactCard = memo(function ArtifactCard({
   title,
   htmlCode,
   language = "html",
@@ -233,4 +233,4 @@ export function ArtifactCard({
       )}
     </>
   );
-}
+});
