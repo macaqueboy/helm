@@ -38,6 +38,31 @@ export async function GET(req: Request) {
   return NextResponse.json(results);
 }
 
+const AGENT_PROMPTS: Record<string, string> = {
+  helm: `Eres @helm, el orquestador y líder técnico del equipo de agentes en Helm.
+Tu rol: Coordinar la conversación, dar respuestas claras y dirigir el trabajo del equipo.
+Muestra proactividad:
+- Si el usuario pide programar, hacer cálculos, ejecutar scripts o probar código -> Menciona a @coder para que ejecute el código en el sandbox.
+- Si el usuario pide investigar, buscar datos en internet o documentarse -> Menciona a @scout para que busque en la web.
+- Si hay trabajo listo para revisar o una tarea por verificar -> Menciona a @reviewer.
+Responde de forma concisa en español y utiliza las herramientas necesarias.`,
+
+  coder: `Eres @coder, el ingeniero de software senior del equipo de Helm.
+Tu rol: Programar, resolver algoritmos y EJECUTAR CÓDIGO en el sandbox usando la herramienta execute_code.
+Si te piden escribir código, calcular algo o procesar datos:
+1. Usa la herramienta execute_code con el código JS/Node.js para probarlo en el sandbox.
+2. Muestra los resultados reales devueltos por el sandbox.
+3. Si el trabajo está listo, mencionalo y pasa el testigo a @reviewer para validación.`,
+
+  scout: `Eres @scout, el investigador técnico y analista de datos de Helm.
+Tu rol: Realizar búsquedas web con search_web, reunir documentación, filtrar información y ofrecer síntesis precisas.
+Usa la herramienta search_web cuando necesites datos actualizados. Reporta los hallazgos a @helm o @coder.`,
+
+  reviewer: `Eres @reviewer, el auditor de calidad y seguridad de Helm.
+Tu rol: Revisar las soluciones propuestas por @coder o @scout, validar el código y gestionar las tareas del canal con create_task o update_task.
+Usa add_reaction para reaccionar a mensajes importantes con emojis (✅, 🚀, 💡).`,
+};
+
 export async function POST(req: Request) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -70,12 +95,10 @@ export async function POST(req: Request) {
   // Check for @agentname mentions in the content
   const agentMentions = content.match(/@(\w+)/g)?.map((m: string) => m.slice(1)) || [];
 
-  // Track which agents we've already triggered (prevent loops)
   const triggeredAgents = new Set<string>();
   const agentQueue: { agent: typeof agents.$inferSelect; triggerMessage: string }[] = [];
 
   if (agentMentions.length > 0) {
-    // Process each mentioned agent
     for (const agentName of agentMentions) {
       const [agent] = await db
         .select()
@@ -89,7 +112,7 @@ export async function POST(req: Request) {
       }
     }
   } else {
-    // No explicit @mentions -> trigger default agent (named "helm" or first workspace agent)
+    // Default trigger: @helm or first agent
     const workspaceAgents = await db
       .select()
       .from(agents)
@@ -107,7 +130,6 @@ export async function POST(req: Request) {
   }
 
   if (agentQueue.length > 0) {
-    // Fetch recent messages (last 30) for context
     const recentMessages = await db
       .select({
         userName: users.name,
@@ -123,20 +145,19 @@ export async function POST(req: Request) {
       .orderBy(desc(messages.createdAt))
       .limit(30);
 
-    recentMessages.reverse(); // Oldest first for context
+    recentMessages.reverse();
 
     const contextMessages = recentMessages.map((m: any) => {
       const sender = m.agentName ? `@${m.agentName} (agente)` : (m.userName || "Usuario");
       return `${sender}: ${m.content}`;
     });
 
-    const MAX_CHAIN_DEPTH = 5; // Prevent infinite agent loops
+    const MAX_CHAIN_DEPTH = 6;
     let chainDepth = 0;
 
     while (agentQueue.length > 0 && chainDepth < MAX_CHAIN_DEPTH) {
       const { agent, triggerMessage } = agentQueue.shift()!;
 
-      // Update agent status to "busy"
       await db.update(agents).set({ status: "busy" }).where(eq(agents.id, agent.id));
 
       try {
@@ -148,25 +169,24 @@ export async function POST(req: Request) {
           agentName: agent.name,
         };
 
-        const systemPrompt = `Eres ${agent.name}, un agente AI en un workspace de colaboración.
+        const customRolePrompt = AGENT_PROMPTS[agent.name.toLowerCase()] ||
+          `Eres @${agent.name}, agente de IA especializado. ${agent.description || ""}`;
 
-Descripción: ${agent.description || "Agente generalista"}
+        const systemPrompt = `${customRolePrompt}
 
-Estás en el canal #${channelName}. Respondes en español, de forma concisa y directa.
+Estás colaborando en el canal #${channelName} con otros agentes del equipo (@helm, @coder, @scout, @reviewer).
 
-Tienes herramientas disponibles. Úsalas cuando sea necesario:
-- create_task: Crea una tarea cuando alguien pide hacer algo
-- list_tasks: Lista tareas del canal
-- update_task: Cambia el estado de una tarea (todo, in_progress, in_review, done, closed)
-- create_channel: Crea un nuevo canal si un tema necesita su propio espacio
-- search_web: Busca información en internet
-- mention_agent: Menciona a otro agente para que colabore
-- list_agents: Lista agentes disponibles
-- save_memory / recall_memory: Almacena y recupera datos en memoria
-- add_reaction: Añade reacciones emoji a mensajes
-- set_reminder: Programa recordatorios
+Herramientas disponibles:
+- execute_code: Ejecuta código JS/Node.js en un sandbox real y obtiene el stdout/resultado.
+- search_web: Busca en internet con DuckDuckGo.
+- create_task, list_tasks, update_task: Administra el tablero de tareas.
+- create_channel, list_agents, mention_agent: Interactúa con el workspace.
+- save_memory, recall_memory: Usa memoria persistente.
+- add_reaction, set_reminder: Añade reacciones emoji y recordatorios.
 
-No digas que vas a hacer algo — hazlo con las tools y luego responde con el resultado.`;
+Regla importante:
+- Cuando ejecutes herramientas, hazlo directamente.
+- Si colaboras con otro agente, menciónalo usando @nombre_agente en tu respuesta para invocarlo automáticamente.`;
 
         const chatMessages: ChatMessage[] = [
           { role: "system", content: systemPrompt },
@@ -177,7 +197,6 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
           { role: "user", content: triggerMessage },
         ];
 
-        // Run the agent loop with tools
         const result = await agentLoop(chatMessages, {
           model: agent.model,
           tools: AGENT_TOOLS,
@@ -196,7 +215,7 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
 
         contextMessages.push(`@${agent.name} (agente): ${responseContent}`);
 
-        // Check if agent mentioned other agents in its response
+        // Scan for @agent mentions in response to trigger chain reaction
         const newMentions = responseContent.match(/@(\w+)/g)?.map((m: string) => m.slice(1)) || [];
         for (const mentionedName of newMentions) {
           const [mentionedAgent] = await db
@@ -205,7 +224,7 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
             .where(and(eq(agents.name, mentionedName), eq(agents.workspaceId, channel.workspaceId)))
             .limit(1);
 
-          if (mentionedAgent && !triggeredAgents.has(mentionedAgent.id)) {
+          if (mentionedAgent && !triggeredAgents.has(mentionedAgent.id) && mentionedAgent.id !== agent.id) {
             triggeredAgents.add(mentionedAgent.id);
             agentQueue.push({ agent: mentionedAgent, triggerMessage: responseContent });
           }
@@ -216,11 +235,10 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
           id: randomUUID(),
           channelId,
           agentId: agent.id,
-          content: "Agente no disponible temporalmente.",
+          content: "Agente ocupado o no disponible en este momento.",
         });
       }
 
-      // Reset agent status to "idle"
       await db.update(agents).set({ status: "idle" }).where(eq(agents.id, agent.id));
       chainDepth++;
     }

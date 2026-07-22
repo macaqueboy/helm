@@ -12,17 +12,43 @@ describe("Tool Executors Mapping Suite", () => {
     }
   });
 
-  it("should handle error gracefully when executing search_web with bad parameters", async () => {
-    const searchExecutor = toolExecutors["search_web"];
-    assert.ok(searchExecutor);
+  it("should execute code in sandbox tool successfully", async () => {
+    const codeExecutor = toolExecutors["execute_code"];
+    assert.ok(codeExecutor);
 
-    // Call search_web with dummy query
     const dummyCtx = {
       channelId: "chn_123",
       agentId: "agt_123",
       workspaceId: "ws_123",
       userId: "usr_123",
-      agentName: "test_agent",
+      agentName: "coder",
+    };
+
+    const codeScript = `
+      const numbers = [10, 20, 30, 40];
+      const sum = numbers.reduce((a, b) => a + b, 0);
+      console.log("Suma total:", sum);
+      sum;
+    `;
+
+    const resJson = await codeExecutor({ code: codeScript }, dummyCtx);
+    const parsed = JSON.parse(resJson);
+
+    assert.equal(parsed.ok, true);
+    assert.ok(parsed.output.includes("Suma total: 100"));
+    assert.ok(parsed.output.includes("Retorno: 100"));
+  });
+
+  it("should handle error gracefully when executing search_web with query", async () => {
+    const searchExecutor = toolExecutors["search_web"];
+    assert.ok(searchExecutor);
+
+    const dummyCtx = {
+      channelId: "chn_123",
+      agentId: "agt_123",
+      workspaceId: "ws_123",
+      userId: "usr_123",
+      agentName: "scout",
     };
 
     const resJson = await searchExecutor({ query: "Helm AI collaboration" }, dummyCtx);

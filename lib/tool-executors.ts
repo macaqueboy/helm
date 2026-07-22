@@ -1,8 +1,8 @@
-import { db, agents, tasks, channels, messages, workspaceMembers, agentMemory, reactions, reminders } from "@/lib/db";
+import { db, agents, tasks, channels, messages, agentMemory, reactions, reminders } from "@/lib/db";
 import { eq, sql, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { runInNewContext } from "vm";
 import type { ToolContext } from "@/lib/ai";
-import type { ToolDefinition } from "@/lib/ai";
 import { AGENT_TOOLS } from "@/lib/tools";
 
 // ═════════════════════════════════════════════════════════════
@@ -13,7 +13,6 @@ async function createTask(
   args: { title: string; description?: string },
   ctx: ToolContext
 ): Promise<string> {
-  // Get next task number in channel
   const [{ maxNum }] = await db
     .select({ maxNum: sql<number>`MAX(${tasks.number})` })
     .from(tasks)
@@ -104,7 +103,6 @@ async function updateTask(
     updatedAt: new Date(),
   };
 
-  // If claiming (in_progress) and no owner → agent claims it
   if (args.status === "in_progress" && !task.ownerId && !task.agentId) {
     updateData.agentId = ctx.agentId;
   }
@@ -204,6 +202,50 @@ async function searchWeb(
   }
 }
 
+async function executeCode(
+  args: { code: string },
+  _ctx: ToolContext
+): Promise<string> {
+  try {
+    const logs: string[] = [];
+    const sandbox = {
+      console: {
+        log: (...a: any[]) => logs.push(a.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(" ")),
+        error: (...a: any[]) => logs.push("[ERROR] " + a.map((x) => String(x)).join(" ")),
+        warn: (...a: any[]) => logs.push("[WARN] " + a.map((x) => String(x)).join(" ")),
+      },
+      Math,
+      Date,
+      JSON,
+      Array,
+      Object,
+      String,
+      Number,
+      Boolean,
+      RegExp,
+      Buffer,
+    };
+
+    const evalResult = runInNewContext(args.code, sandbox, { timeout: 5000 });
+    let output = logs.join("\n");
+
+    if (evalResult !== undefined && evalResult !== null) {
+      const resStr = typeof evalResult === "object" ? JSON.stringify(evalResult) : String(evalResult);
+      output += (output ? "\n---> Retorno: " : "Retorno: ") + resStr;
+    }
+
+    return JSON.stringify({
+      ok: true,
+      output: output || "(Ejecutado con éxito en el sandbox sin salida)",
+    });
+  } catch (err) {
+    return JSON.stringify({
+      ok: false,
+      error: `Error en sandbox: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+}
+
 async function mentionAgent(
   args: { agent_name: string; message: string },
   ctx: ToolContext
@@ -298,12 +340,11 @@ async function recallMemory(
     return JSON.stringify({ ok: false, error: "Contexto de agente requerido para recordar memorias" });
   }
 
-  let query = db
+  const items = await db
     .select()
     .from(agentMemory)
     .where(eq(agentMemory.agentId, ctx.agentId));
 
-  const items = await query;
   const filtered = args.category
     ? items.filter((m: any) => m.category === args.category)
     : items;
@@ -376,6 +417,7 @@ export const toolExecutors: Record<string, (args: any, ctx: ToolContext) => Prom
   update_task: updateTask as any,
   create_channel: createChannel as any,
   search_web: searchWeb as any,
+  execute_code: executeCode as any,
   mention_agent: mentionAgent as any,
   list_agents: listAgents as any,
   save_memory: saveMemory as any,

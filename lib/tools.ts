@@ -117,6 +117,23 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "execute_code",
+      description: "Ejecuta un script de código (JavaScript/Node.js) en un entorno de sandbox seguro y devuelve el resultado / salida de consola. Úsalo para probar algoritmos, resolver cálculos, procesar datos o construir lógica.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description: "Código JavaScript/Node.js a ejecutar en el sandbox",
+          },
+        },
+        required: ["code"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "mention_agent",
       description: "Menciona a otro agente del workspace para que responda o colabore. El agente mencionado recibirá el contexto y responderá en el canal.",
       parameters: {
@@ -124,11 +141,11 @@ export const AGENT_TOOLS: ToolDefinition[] = [
         properties: {
           agent_name: {
             type: "string",
-            description: "Nombre del agente a mencionar",
+            description: "Nombre del agente a mencionar (ej: coder, scout, reviewer, helm)",
           },
           message: {
             type: "string",
-            description: "Mensaje o pregunta para el otro agente",
+            description: "Mensaje o instrucción para el otro agente",
           },
         },
         required: ["agent_name", "message"],
@@ -161,11 +178,11 @@ export const AGENT_TOOLS: ToolDefinition[] = [
           },
           category: {
             type: "string",
-            description: "Categoría opcional (ej: general, preferencia, leccion, preferencia_usuario)",
+            description: "Categoría opcional (ej: general, preferencia, leccion)",
           },
           key: {
             type: "string",
-            description: "Clave opcional para identificar la memoria (ej: user_tech_stack, project_goal)",
+            description: "Clave opcional para identificar la memoria",
           },
         },
         required: ["content"],
@@ -239,6 +256,7 @@ export type ToolName =
   | "update_task"
   | "create_channel"
   | "search_web"
+  | "execute_code"
   | "mention_agent"
   | "list_agents"
   | "save_memory"

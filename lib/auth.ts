@@ -9,6 +9,33 @@ const secret = new TextEncoder().encode(secretKey);
 
 export type Session = { user: { id: string; email: string; name: string; avatarSeed: string } };
 
+const DEFAULT_AGENTS = [
+  { name: "helm", description: "Orquestador principal y coordinador de proyectos", model: "deepseek-v4-flash" },
+  { name: "coder", description: "Ingeniero de software. Programa y ejecuta código JS/Node.js en el sandbox", model: "glm-5.2" },
+  { name: "scout", description: "Especialista en investigación web y búsqueda de información", model: "deepseek-v4-flash" },
+  { name: "reviewer", description: "Auditor de calidad, revisión de código y tareas", model: "deepseek-v4-flash" },
+];
+
+export async function ensureDefaultAgents(workspaceId: string, createdById: string) {
+  const existing = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  const existingNames = new Set(existing.map((a) => a.name.toLowerCase()));
+
+  for (const agentDef of DEFAULT_AGENTS) {
+    if (!existingNames.has(agentDef.name.toLowerCase())) {
+      await db.insert(agents).values({
+        id: randomUUID(),
+        workspaceId,
+        name: agentDef.name,
+        description: agentDef.description,
+        runtime: agentDef.model,
+        model: agentDef.model,
+        status: "idle",
+        createdBy: createdById,
+      });
+    }
+  }
+}
+
 export async function encrypt(payload: any) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
@@ -49,6 +76,9 @@ async function getSession() {
 
     if (!member) return null;
 
+    // Ensure default team of agents exists
+    await ensureDefaultAgents(member.workspaceId, existingUser.id);
+
     return {
       user: {
         id: existingUser.id,
@@ -85,20 +115,8 @@ export async function signInWithCreds(email: string, password: string): Promise<
     workspaceId = member.workspaceId;
   }
 
-  // Ensure workspace has a default helm agent
-  const workspaceAgents = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
-  if (workspaceAgents.length === 0) {
-    await db.insert(agents).values({
-      id: randomUUID(),
-      workspaceId,
-      name: "helm",
-      description: "Agente principal del workspace",
-      runtime: "deepseek-v4-flash",
-      model: "deepseek-v4-flash",
-      status: "idle",
-      createdBy: existingUser.id,
-    });
-  }
+  // Ensure default agent team
+  await ensureDefaultAgents(workspaceId, existingUser.id);
 
   const session: Session = {
     user: { id: existingUser.id, email: existingUser.email, name: existingUser.name, avatarSeed: existingUser.avatarSeed },
@@ -120,17 +138,8 @@ export async function signUpWithCreds(name: string, email: string, password: str
   await db.insert(workspaceMembers).values({ id: randomUUID(), workspaceId, userId: id, role: "owner" });
   await db.insert(channels).values({ id: randomUUID(), workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: id });
 
-  // Auto-create default helm agent
-  await db.insert(agents).values({
-    id: randomUUID(),
-    workspaceId,
-    name: "helm",
-    description: "Agente principal del workspace",
-    runtime: "deepseek-v4-flash",
-    model: "deepseek-v4-flash",
-    status: "idle",
-    createdBy: id,
-  });
+  // Auto-create default team of agents
+  await ensureDefaultAgents(workspaceId, id);
 
   const session: Session = {
     user: { id: user.id, email: user.email, name: user.name, avatarSeed: user.avatarSeed },

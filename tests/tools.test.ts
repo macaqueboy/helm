@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { AGENT_TOOLS } from "../lib/tools";
 
 describe("Agent Tool Definitions Suite", () => {
-  it("should define exactly 11 agent tools", () => {
-    assert.equal(AGENT_TOOLS.length, 11);
+  it("should define exactly 12 agent tools", () => {
+    assert.equal(AGENT_TOOLS.length, 12);
   });
 
   it("should have valid function specs for all tools", () => {
