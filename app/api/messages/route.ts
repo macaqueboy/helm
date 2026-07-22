@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { messages, users, agents, channels } from "@/lib/db/schema";
+import { messages, users, agents, channels, artifacts } from "@/lib/db/schema";
 import { eq, asc, and, desc } from "drizzle-orm";
 import { agentLoop, type ChatMessage, type ToolContext } from "@/lib/ai";
 import { AGENT_TOOLS, toolExecutors } from "@/lib/tool-executors";
@@ -63,6 +63,53 @@ Usa la herramienta search_web cuando necesites datos actualizados. Reporta los h
 Tu rol: Revisar las soluciones propuestas por @coder o @scout, validar el código y gestionar las tareas del canal con create_task o update_task.
 Usa add_reaction para reaccionar a mensajes importantes con emojis (✅, 🚀, 💡).`,
 };
+
+// Auto extract and version artifacts (Claude Artifacts style)
+async function autoExtractArtifact(content: string, channelId: string, workspaceId: string, agentId: string, messageId: string) {
+  try {
+    const htmlRegex = /```html\s*([\s\S]*?)```/i;
+    const match = htmlRegex.exec(content);
+    if (match) {
+      const htmlCode = match[1].trim();
+      
+      // Try to parse title
+      const titleMatch = /<title>(.*?)<\/title>/i.exec(htmlCode);
+      const title = titleMatch ? titleMatch[1].trim() : "Aplicación Web / Canvas";
+      
+      // Generate slug from title
+      const slug = title.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .slice(0, 30) || "web-artifact";
+
+      // Find current highest version for this workspace + slug
+      const [existing] = await db
+        .select()
+        .from(artifacts)
+        .where(and(eq(artifacts.workspaceId, workspaceId), eq(artifacts.slug, slug)))
+        .orderBy(desc(artifacts.version))
+        .limit(1);
+
+      const nextVersion = existing ? existing.version + 1 : 1;
+
+      await db.insert(artifacts).values({
+        id: randomUUID(),
+        workspaceId,
+        channelId,
+        slug,
+        title,
+        type: "html",
+        content: htmlCode,
+        version: nextVersion,
+        agentId,
+        messageId,
+      });
+      console.log(`[ARTIFACT REGISTRY] Auto-saved new version v${nextVersion} for slug "${slug}"`);
+    }
+  } catch (err) {
+    console.error("Auto artifact extraction failed:", err);
+  }
+}
 
 export async function POST(req: Request) {
   const session = await getServerSession();
@@ -173,7 +220,24 @@ export async function POST(req: Request) {
         const customRolePrompt = AGENT_PROMPTS[agent.name.toLowerCase()] ||
           `Eres @${agent.name}, agente de IA especializado. ${agent.description || ""}`;
 
-        const systemPrompt = `${customRolePrompt}
+        // Scan trigger message for artifact mentions to inject code context!
+        let artifactContext = "";
+        const artifactMatch = triggerMessage.match(/[@#]artifact:([a-z0-9-]+)/i);
+        if (artifactMatch) {
+          const slug = artifactMatch[1].toLowerCase();
+          const [art] = await db
+            .select()
+            .from(artifacts)
+            .where(and(eq(artifacts.workspaceId, agent.workspaceId), eq(artifacts.slug, slug)))
+            .orderBy(desc(artifacts.version))
+            .limit(1);
+
+          if (art) {
+            artifactContext = `\n\n[CONTEXTO] El usuario está haciendo referencia al artifact existente con slug: "${slug}" (Versión ${art.version}, Título: "${art.title}"). Aquí tienes el código actual de este artifact para que puedas editarlo, mejorarlo o actualizarlo según las instrucciones sin empezar de cero. Si haces cambios, escribe el nuevo código HTML/JS completo en un bloque \`\`\`html como de costumbre:\n\n\`\`\`html\n${art.content}\n\`\`\``;
+          }
+        }
+
+        const systemPrompt = `${customRolePrompt}${artifactContext}
 
 Estás colaborando en el canal #${channelName} con otros agentes del equipo (@helm, @coder, @scout, @reviewer).
 
@@ -207,12 +271,16 @@ Regla importante:
         });
 
         const responseContent = result.text || "Agente sin respuesta";
+        const responseMsgId = randomUUID();
         await db.insert(messages).values({
-          id: randomUUID(),
+          id: responseMsgId,
           channelId,
           agentId: agent.id,
           content: responseContent,
         });
+
+        // Auto extract and save/update artifact
+        await autoExtractArtifact(responseContent, channelId, agent.workspaceId, agent.id, responseMsgId);
 
         contextMessages.push(`@${agent.name} (agente): ${responseContent}`);
 

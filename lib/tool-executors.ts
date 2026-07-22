@@ -1,4 +1,5 @@
 import { db, agents, tasks, channels, messages, agentMemory, reactions, reminders } from "@/lib/db";
+import { toolLogs } from "@/lib/db/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { runInNewContext } from "vm";
@@ -408,10 +409,28 @@ async function setReminder(
 }
 
 // ═════════════════════════════════════════════════════════════
-// Export: tool definitions + executors map
+// Export: tool definitions + executors map with logging
 // ═════════════════════════════════════════════════════════════
 
-export const toolExecutors: Record<string, (args: any, ctx: ToolContext) => Promise<string>> = {
+async function logToolCall(ctx: ToolContext, toolName: string, args: any, result: string, status: string = "success") {
+  try {
+    const id = randomUUID();
+    await db.insert(toolLogs).values({
+      id,
+      workspaceId: ctx.workspaceId,
+      channelId: ctx.channelId || null,
+      agentName: ctx.agentName || "unknown",
+      toolName,
+      input: JSON.stringify(args),
+      output: result,
+      status,
+    });
+  } catch (e) {
+    console.error("Error logging tool call:", e);
+  }
+}
+
+const rawExecutors: Record<string, (args: any, ctx: ToolContext) => Promise<string>> = {
   create_task: createTask as any,
   list_tasks: listTasks as any,
   update_task: updateTask as any,
@@ -425,5 +444,21 @@ export const toolExecutors: Record<string, (args: any, ctx: ToolContext) => Prom
   add_reaction: addReaction as any,
   set_reminder: setReminder as any,
 };
+
+export const toolExecutors: Record<string, (args: any, ctx: ToolContext) => Promise<string>> = {};
+
+for (const [name, fn] of Object.entries(rawExecutors)) {
+  toolExecutors[name] = async (args: any, ctx: ToolContext) => {
+    try {
+      const res = await fn(args, ctx);
+      await logToolCall(ctx, name, args, res, "success");
+      return res;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await logToolCall(ctx, name, args, errMsg, "failed");
+      throw err;
+    }
+  };
+}
 
 export { AGENT_TOOLS };

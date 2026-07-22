@@ -114,6 +114,34 @@ export const agentMemory = sqliteTable("agent_memory", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// Artifacts registry table
+export const artifacts = sqliteTable("artifacts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull(), // e.g. "flappy-bird"
+  title: text("title").notNull(), // e.g. "Flappy Bird"
+  type: text("type").notNull().default("html"), // html, react, node, canvas
+  content: text("content").notNull(),
+  version: integer("version").notNull().default(1),
+  agentId: text("agent_id").references(() => agents.id),
+  messageId: text("message_id").references(() => messages.id),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// Tool execution logs for live terminal drawer
+export const toolLogs = sqliteTable("tool_logs", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").references(() => channels.id, { onDelete: "cascade" }),
+  agentName: text("agent_name").notNull(),
+  toolName: text("tool_name").notNull(),
+  input: text("input").notNull(),
+  output: text("output"),
+  status: text("status").notNull().default("success"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
@@ -134,3 +162,7 @@ export type Reminder = typeof reminders.$inferSelect;
 export type NewReminder = typeof reminders.$inferInsert;
 export type AgentMemory = typeof agentMemory.$inferSelect;
 export type NewAgentMemory = typeof agentMemory.$inferInsert;
+export type Artifact = typeof artifacts.$inferSelect;
+export type NewArtifact = typeof artifacts.$inferInsert;
+export type ToolLog = typeof toolLogs.$inferSelect;
+export type NewToolLog = typeof toolLogs.$inferInsert;
