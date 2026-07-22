@@ -1,6 +1,5 @@
 // lib/ai.ts — LLM integration with OpenAI-compatible tool calling
-// Supports: OpenCode Go (127.0.0.1:8800), any OpenAI-compatible endpoint
-// Tool calling loop: LLM can call tools, get results, call more tools, then respond
+// Connects directly to OpenCode Go or custom OPENCODEGO_URL
 
 type ChatRole = "system" | "user" | "assistant" | "tool";
 
@@ -47,8 +46,16 @@ export interface ToolContext {
   agentName: string;
 }
 
-const baseUrl = process.env.OPENCODEGO_URL ?? "http://127.0.0.1:8800";
-const apiKey = process.env.OPENCODE_GO_API_KEY ?? process.env.OPENCODE_API_KEY ?? "sk-opencode";
+const DEFAULT_OPENCODE_KEY = "sk-44S...ZRff";
+
+const rawKey = process.env.OPENCODE_GO_API_KEY ?? process.env.OPENCODE_API_KEY;
+const apiKey = rawKey && rawKey.trim().length > 10 ? rawKey.trim() : DEFAULT_OPENCODE_KEY;
+
+const rawUrl = process.env.OPENCODEGO_URL;
+const baseUrl = rawUrl && !rawUrl.includes("127.0.0.1") && !rawUrl.includes("localhost")
+  ? rawUrl.replace(/\/$/, "")
+  : "https://opencode.ai/zen/go/v1";
+
 const defaultModel = process.env.OPENCODEGO_DEFAULT_MODEL ?? "deepseek-v4-flash";
 
 /**
@@ -82,11 +89,17 @@ async function llmCall(
     body.tool_choice = "auto";
   }
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+  // Ensure path ends with /chat/completions correctly
+  const endpoint = baseUrl.endsWith("/chat/completions")
+    ? baseUrl
+    : `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "authorization": `Bearer ${apiKey}`,
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
     },
     body: JSON.stringify(body),
     signal: opts?.signal,
@@ -208,7 +221,6 @@ export async function chatOpenCode(
   messages: ChatMessage[],
   opts?: { model?: string; maxTokens?: number; temperature?: number; signal?: AbortSignal }
 ): Promise<{ text: string; model: string }> {
-  // Remove tool messages if present — simple chat doesn't support them
   const cleanMessages = messages.filter((m) => m.role !== "tool" && !m.tool_calls);
   const response = await llmCall(cleanMessages, opts);
   return { text: response.content ?? "", model: response.model };
