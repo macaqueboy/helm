@@ -1,5 +1,5 @@
 // lib/ai.ts — LLM integration with OpenAI-compatible tool calling
-// Connects directly to OpenCode Go or custom OPENCODEGO_URL
+// Connects directly to OpenCode Go API with automatic fallback
 
 type ChatRole = "system" | "user" | "assistant" | "tool";
 
@@ -52,9 +52,15 @@ const rawKey = process.env.OPENCODE_GO_API_KEY ?? process.env.OPENCODE_API_KEY;
 const apiKey = rawKey && rawKey.trim().length > 10 ? rawKey.trim() : DEFAULT_OPENCODE_KEY;
 
 const rawUrl = process.env.OPENCODEGO_URL;
-const baseUrl = rawUrl && !rawUrl.includes("127.0.0.1") && !rawUrl.includes("localhost")
-  ? rawUrl.replace(/\/$/, "")
-  : "https://opencode.ai/zen/go/v1";
+const isInvalidLocalUrl =
+  !rawUrl ||
+  rawUrl.includes("127.0.0.1") ||
+  rawUrl.includes("localhost") ||
+  rawUrl.includes("host.docker.internal");
+
+const baseUrl = isInvalidLocalUrl
+  ? "https://opencode.ai/zen/go/v1"
+  : rawUrl.replace(/\/$/, "");
 
 const defaultModel = process.env.OPENCODEGO_DEFAULT_MODEL ?? "deepseek-v4-flash";
 
@@ -89,7 +95,6 @@ async function llmCall(
     body.tool_choice = "auto";
   }
 
-  // Ensure path ends with /chat/completions correctly
   const endpoint = baseUrl.endsWith("/chat/completions")
     ? baseUrl
     : `${baseUrl.replace(/\/$/, "")}/chat/completions`;
@@ -157,7 +162,6 @@ export async function agentLoop(
       signal: opts.signal,
     });
 
-    // No tool calls → return final content
     if (!response.tool_calls || response.tool_calls.length === 0) {
       return {
         text: response.content ?? "",
@@ -166,14 +170,12 @@ export async function agentLoop(
       };
     }
 
-    // Add assistant message with tool_calls to conversation
     conversation.push({
       role: "assistant",
       content: response.content,
       tool_calls: response.tool_calls,
     });
 
-    // Execute each tool call
     for (const tc of response.tool_calls) {
       const toolName = tc.function.name;
       toolCallsMade.push(toolName);
@@ -201,7 +203,6 @@ export async function agentLoop(
     }
   }
 
-  // Max iterations reached — force a final response without tools
   const final = await llmCall(conversation, {
     model: opts.model,
     signal: opts.signal,
@@ -214,9 +215,6 @@ export async function agentLoop(
   };
 }
 
-/**
- * Simple chat without tools (for backwards compat)
- */
 export async function chatOpenCode(
   messages: ChatMessage[],
   opts?: { model?: string; maxTokens?: number; temperature?: number; signal?: AbortSignal }
