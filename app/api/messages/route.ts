@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { messages, users, agents, channels } from "@/lib/db/schema";
-import { eq, asc, and, desc, ne } from "drizzle-orm";
+import { eq, asc, and, desc } from "drizzle-orm";
 import { agentLoop, type ChatMessage, type ToolContext } from "@/lib/ai";
 import { AGENT_TOOLS, toolExecutors } from "@/lib/tool-executors";
 import { randomUUID } from "crypto";
@@ -57,27 +57,56 @@ export async function POST(req: Request) {
     })
     .returning();
 
+  // Get channel + workspace info
+  const [channel] = await db
+    .select({ id: channels.id, workspaceId: channels.workspaceId, name: channels.name })
+    .from(channels)
+    .where(eq(channels.id, channelId))
+    .limit(1);
+
+  if (!channel) return NextResponse.json(userMsg, { status: 201 });
+  const channelName = channel.name;
+
   // Check for @agentname mentions in the content
   const agentMentions = content.match(/@(\w+)/g)?.map((m: string) => m.slice(1)) || [];
 
+  // Track which agents we've already triggered (prevent loops)
+  const triggeredAgents = new Set<string>();
+  const agentQueue: { agent: typeof agents.$inferSelect; triggerMessage: string }[] = [];
+
   if (agentMentions.length > 0) {
-    // Get channel + workspace info
-    const [channel] = await db
-      .select({ id: channels.id, workspaceId: channels.workspaceId, name: channels.name })
-      .from(channels)
-      .where(eq(channels.id, channelId))
-      .limit(1);
+    // Process each mentioned agent
+    for (const agentName of agentMentions) {
+      const [agent] = await db
+        .select()
+        .from(agents)
+        .where(and(eq(agents.name, agentName), eq(agents.workspaceId, channel.workspaceId)))
+        .limit(1);
 
-    if (!channel) return NextResponse.json(userMsg, { status: 201 });
-    const channelName = channel.name;
-
-    // Fetch workspace ID from any member
-    const [member] = await db
+      if (agent && !triggeredAgents.has(agent.id)) {
+        triggeredAgents.add(agent.id);
+        agentQueue.push({ agent, triggerMessage: content });
+      }
+    }
+  } else {
+    // No explicit @mentions -> trigger default agent (named "helm" or first workspace agent)
+    const workspaceAgents = await db
       .select()
       .from(agents)
-      .where(eq(agents.workspaceId, channel.workspaceId))
-      .limit(1);
+      .where(eq(agents.workspaceId, channel.workspaceId));
 
+    if (workspaceAgents.length > 0) {
+      const defaultAgent =
+        workspaceAgents.find((a) => a.name.toLowerCase() === "helm") ?? workspaceAgents[0];
+
+      if (defaultAgent && !triggeredAgents.has(defaultAgent.id)) {
+        triggeredAgents.add(defaultAgent.id);
+        agentQueue.push({ agent: defaultAgent, triggerMessage: content });
+      }
+    }
+  }
+
+  if (agentQueue.length > 0) {
     // Fetch recent messages (last 30) for context
     const recentMessages = await db
       .select({
@@ -96,32 +125,11 @@ export async function POST(req: Request) {
 
     recentMessages.reverse(); // Oldest first for context
 
-    // Build shared context string
     const contextMessages = recentMessages.map((m: any) => {
       const sender = m.agentName ? `@${m.agentName} (agente)` : (m.userName || "Usuario");
       return `${sender}: ${m.content}`;
     });
 
-    // Track which agents we've already triggered (prevent loops)
-    const triggeredAgents = new Set<string>();
-    // Queue of agents to process (for chain reactions)
-    const agentQueue: { agent: typeof agents.$inferSelect; triggerMessage: string }[] = [];
-
-    // Process each mentioned agent
-    for (const agentName of agentMentions) {
-      const [agent] = await db
-        .select()
-        .from(agents)
-        .where(and(eq(agents.name, agentName), eq(agents.workspaceId, channel.workspaceId)))
-        .limit(1);
-
-      if (agent && !triggeredAgents.has(agent.id)) {
-        triggeredAgents.add(agent.id);
-        agentQueue.push({ agent, triggerMessage: content });
-      }
-    }
-
-    // Process agent queue (supports chain: agent A mentions agent B → B responds)
     const MAX_CHAIN_DEPTH = 5; // Prevent infinite agent loops
     let chainDepth = 0;
 
@@ -140,7 +148,6 @@ export async function POST(req: Request) {
           agentName: agent.name,
         };
 
-        // Build system prompt with agent identity
         const systemPrompt = `Eres ${agent.name}, un agente AI en un workspace de colaboración.
 
 Descripción: ${agent.description || "Agente generalista"}
@@ -155,8 +162,9 @@ Tienes herramientas disponibles. Úsalas cuando sea necesario:
 - search_web: Busca información en internet
 - mention_agent: Menciona a otro agente para que colabore
 - list_agents: Lista agentes disponibles
-
-Si mencionas a otro agente con mention_agent, ese agente responderá automáticamente.
+- save_memory / recall_memory: Almacena y recupera datos en memoria
+- add_reaction: Añade reacciones emoji a mensajes
+- set_reminder: Programa recordatorios
 
 No digas que vas a hacer algo — hazlo con las tools y luego responde con el resultado.`;
 
@@ -178,7 +186,6 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
           maxIterations: 10,
         });
 
-        // Insert the agent response
         const responseContent = result.text || "Agente sin respuesta";
         await db.insert(messages).values({
           id: randomUUID(),
@@ -187,7 +194,6 @@ No digas que vas a hacer algo — hazlo con las tools y luego responde con el re
           content: responseContent,
         });
 
-        // Add to context for next agent in chain
         contextMessages.push(`@${agent.name} (agente): ${responseContent}`);
 
         // Check if agent mentioned other agents in its response

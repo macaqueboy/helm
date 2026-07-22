@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import { db, users, workspaces, workspaceMembers, channels } from "./db";
+import { db, users, workspaces, workspaceMembers, channels, agents } from "./db";
 import { eq } from "drizzle-orm";
 
 const secretKey = process.env.AUTH_SECRET ?? "dev-secret-change-in-production";
@@ -31,7 +31,7 @@ async function getSession() {
     const payload = await decrypt(sessionCookie);
     if (!payload?.user?.id) return null;
 
-    // Validate that user exists in DB
+    // Validate user exists in DB
     const [existingUser] = await db
       .select()
       .from(users)
@@ -40,7 +40,7 @@ async function getSession() {
 
     if (!existingUser) return null;
 
-    // Validate that user is in at least one workspace
+    // Validate user is in at least one workspace
     const [member] = await db
       .select()
       .from(workspaceMembers)
@@ -75,11 +75,29 @@ export async function signInWithCreds(email: string, password: string): Promise<
     .where(eq(workspaceMembers.userId, existingUser.id))
     .limit(1);
 
+  let workspaceId: string;
   if (!member) {
-    const workspaceId = randomUUID();
+    workspaceId = randomUUID();
     await db.insert(workspaces).values({ id: workspaceId, name: `${existingUser.name}'s workspace`, avatarSeed: existingUser.name });
     await db.insert(workspaceMembers).values({ id: randomUUID(), workspaceId, userId: existingUser.id, role: "owner" });
     await db.insert(channels).values({ id: randomUUID(), workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: existingUser.id });
+  } else {
+    workspaceId = member.workspaceId;
+  }
+
+  // Ensure workspace has a default helm agent
+  const workspaceAgents = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  if (workspaceAgents.length === 0) {
+    await db.insert(agents).values({
+      id: randomUUID(),
+      workspaceId,
+      name: "helm",
+      description: "Agente principal del workspace",
+      runtime: "deepseek-v4-flash",
+      model: "deepseek-v4-flash",
+      status: "idle",
+      createdBy: existingUser.id,
+    });
   }
 
   const session: Session = {
@@ -100,9 +118,19 @@ export async function signUpWithCreds(name: string, email: string, password: str
   const workspaceId = randomUUID();
   await db.insert(workspaces).values({ id: workspaceId, name: `${name}'s workspace`, avatarSeed: name });
   await db.insert(workspaceMembers).values({ id: randomUUID(), workspaceId, userId: id, role: "owner" });
-  // Auto-create "general" channel
-  const channelId = randomUUID();
-  await db.insert(channels).values({ id: channelId, workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: id });
+  await db.insert(channels).values({ id: randomUUID(), workspaceId, name: "general", description: "Canal general", isPrivate: false, createdBy: id });
+
+  // Auto-create default helm agent
+  await db.insert(agents).values({
+    id: randomUUID(),
+    workspaceId,
+    name: "helm",
+    description: "Agente principal del workspace",
+    runtime: "deepseek-v4-flash",
+    model: "deepseek-v4-flash",
+    status: "idle",
+    createdBy: id,
+  });
 
   const session: Session = {
     user: { id: user.id, email: user.email, name: user.name, avatarSeed: user.avatarSeed },
